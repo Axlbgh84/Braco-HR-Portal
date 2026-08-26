@@ -27,8 +27,6 @@ function issueSession(userId) {
 
 /* ============================================================================
    MICROSOFT ENTRA LOGIN
-
-   Kept available in the backend for possible future use.
 ============================================================================ */
 
 async function loginWithEntra(entraIdToken) {
@@ -100,32 +98,14 @@ async function loginWithEntra(entraIdToken) {
 
 /* ============================================================================
    EMAIL MAGIC-LINK — REQUEST
-
-   Approved login types:
-
-   - Admin
-   - HR
-   - Finance
-   - Supervisor
-   - Employee
-   - Freelancer
-   - Service Agreement Worker
 ============================================================================ */
 
 async function requestEmailLink(email) {
   const normalizedEmail = email.trim().toLowerCase();
 
 
-  /*
-   * Existing portal users.
-   *
-   * Employees and freelancers do NOT store email directly on their tables.
-   * Their email comes from the linked users record.
-   *
-   * This query allows an active users record to receive a login link when
-   * that user has at least one portal role, employee profile, or freelancer
-   * profile.
-   */
+  // Existing portal users:
+  // Admin, HR, Finance, Supervisor, Employee, Freelancer, etc.
   const portalUserResult = await db.query(
     `select u.id
      from users u
@@ -153,13 +133,7 @@ async function requestEmailLink(email) {
   );
 
 
-  /*
-   * Service Agreement Workers are different:
-   * their email is stored directly on service_agreement_workers.
-   *
-   * This allows a service worker record to exist before its users account
-   * has been created.
-   */
+  // Service Agreement Workers may exist before a users row is created.
   const serviceWorkerResult = await db.query(
     `select id
      from service_agreement_workers
@@ -169,10 +143,7 @@ async function requestEmailLink(email) {
   );
 
 
-  /*
-   * Return the same response for unknown email addresses.
-   * This prevents exposing whether a particular email exists.
-   */
+  // Do not reveal whether the email exists.
   if (
     !portalUserResult.rows[0] &&
     !serviceWorkerResult.rows[0]
@@ -181,8 +152,13 @@ async function requestEmailLink(email) {
   }
 
 
+  // IMPORTANT:
+  // Explicitly send the user back to the frontend callback route.
   const { error } = await supabaseAdmin.auth.signInWithOtp({
-    email: normalizedEmail
+    email: normalizedEmail,
+    options: {
+      emailRedirectTo: `${env.frontendOrigin}/auth/callback`
+    }
   });
 
 
@@ -207,9 +183,6 @@ async function requestEmailLink(email) {
 
 async function verifyEmailLink(supabaseAccessToken) {
 
-  /*
-   * Ask Supabase which email address owns this authenticated access token.
-   */
   const { data, error } = await supabaseAdmin.auth.getUser(
     supabaseAccessToken
   );
@@ -237,7 +210,7 @@ async function verifyEmailLink(supabaseAccessToken) {
      Existing portal user
   -------------------------------------------------------------------------- */
 
-  let userResult = await db.query(
+  const userResult = await db.query(
     `select *
      from users
      where lower(email) = $1`,
@@ -249,8 +222,6 @@ async function verifyEmailLink(supabaseAccessToken) {
 
   /* --------------------------------------------------------------------------
      Service Agreement Worker
-
-     This table stores email directly, so it may exist without a users row.
   -------------------------------------------------------------------------- */
 
   const serviceWorkerResult = await db.query(
@@ -266,11 +237,7 @@ async function verifyEmailLink(supabaseAccessToken) {
 
 
   /* --------------------------------------------------------------------------
-     If no users record exists, only an approved Service Agreement Worker
-     may be provisioned automatically.
-
-     Employees, admins, HR, finance, supervisors, and freelancers should
-     already have users records.
+     Create users row only for an approved Service Agreement Worker
   -------------------------------------------------------------------------- */
 
   if (!user) {
@@ -307,7 +274,7 @@ async function verifyEmailLink(supabaseAccessToken) {
 
 
   /* --------------------------------------------------------------------------
-     Active account check
+     Active-account check
   -------------------------------------------------------------------------- */
 
   if (!user.is_active) {
@@ -321,8 +288,6 @@ async function verifyEmailLink(supabaseAccessToken) {
 
   /* --------------------------------------------------------------------------
      Employee profile
-
-     Employee email comes from users.email.
   -------------------------------------------------------------------------- */
 
   const employeeResult = await db.query(
@@ -338,9 +303,6 @@ async function verifyEmailLink(supabaseAccessToken) {
 
   /* --------------------------------------------------------------------------
      Freelancer profile
-
-     Freelancer email ALSO comes from users.email.
-     freelancers does not contain its own email column.
   -------------------------------------------------------------------------- */
 
   const freelancerResult = await db.query(
@@ -355,9 +317,6 @@ async function verifyEmailLink(supabaseAccessToken) {
 
   /* --------------------------------------------------------------------------
      Portal roles
-
-     This includes Admin, HR, Finance, Supervisor, Employee, service_worker,
-     and any future roles added to the roles table.
   -------------------------------------------------------------------------- */
 
   const roleResult = await db.query(
@@ -373,7 +332,7 @@ async function verifyEmailLink(supabaseAccessToken) {
 
 
   /* --------------------------------------------------------------------------
-     Service Agreement Worker linking
+     Link Service Agreement Worker to user
   -------------------------------------------------------------------------- */
 
   if (serviceWorker) {
@@ -404,10 +363,6 @@ async function verifyEmailLink(supabaseAccessToken) {
     }
 
 
-    /*
-     * Automatically ensure the Service Agreement Worker role exists
-     * on the user's account.
-     */
     await db.query(
       `insert into user_roles (
          user_id,
@@ -432,9 +387,6 @@ async function verifyEmailLink(supabaseAccessToken) {
 
   /* --------------------------------------------------------------------------
      Authorization check
-
-     A verified email is not enough.
-     The person must actually belong to the portal.
   -------------------------------------------------------------------------- */
 
   const approved =
@@ -454,7 +406,7 @@ async function verifyEmailLink(supabaseAccessToken) {
 
 
   /* --------------------------------------------------------------------------
-     Login timestamp
+     Update login timestamp
   -------------------------------------------------------------------------- */
 
   await db.query(
@@ -466,7 +418,7 @@ async function verifyEmailLink(supabaseAccessToken) {
 
 
   /* --------------------------------------------------------------------------
-     Issue Braco HR Portal session
+     Issue Braco portal session
   -------------------------------------------------------------------------- */
 
   return {
@@ -477,7 +429,7 @@ async function verifyEmailLink(supabaseAccessToken) {
 
 
 /* ============================================================================
-   CURRENT LOGGED-IN USER
+   CURRENT USER
 ============================================================================ */
 
 async function getMe(userId) {
