@@ -19,18 +19,18 @@ router.post('/entra/callback', authLimiter, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/freelancer/request-link', authLimiter, async (req, res, next) => {
+router.post('/email/request-link', authLimiter, async (req, res, next) => {
   try {
     const { email } = z.object({ email: z.string().email() }).parse(req.body);
-    await authService.requestFreelancerLink(email);
-    res.status(204).send(); // same response whether or not the email matches a freelancer
+    await authService.requestEmailLink(email);
+    res.status(204).send();
   } catch (err) { next(err); }
 });
 
-router.post('/freelancer/verify', authLimiter, async (req, res, next) => {
+router.post('/email/verify', authLimiter, async (req, res, next) => {
   try {
     const { accessToken } = z.object({ accessToken: z.string().min(10) }).parse(req.body);
-    const { token } = await authService.verifyFreelancerLink(accessToken);
+    const { token } = await authService.verifyEmailLink(accessToken);
     res
       .cookie('session', token, { httpOnly: true, secure: true, sameSite: 'strict', maxAge: 60 * 60 * 1000 })
       .json({ data: { token } });

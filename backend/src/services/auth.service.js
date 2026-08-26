@@ -36,40 +36,122 @@ async function loginWithEntra(entraIdToken) {
   return { token: issueSession(user.id), userId: user.id };
 }
 
-/** Sends a magic-link email to a known freelancer via Supabase Auth. */
-async function requestFreelancerLink(email) {
-  const { rows } = await db.query('select id from freelancers where email = $1', [email]);
-  if (!rows[0]) {
-    // Do not reveal whether the email exists — respond success either way.
+/** Sends a magic-link email to a known employee or freelancer via Supabase Auth. */
+async function requestEmailLink(email) {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const employeeResult = await db.query(
+    'select id from employees where lower(email) = $1',
+    [normalizedEmail]
+  );
+
+  const freelancerResult = await db.query(
+    'select id from freelancers where lower(email) = $1',
+    [normalizedEmail]
+  );
+
+  if (!employeeResult.rows[0] && !freelancerResult.rows[0]) {
+    // Do not reveal whether the email exists.
     return;
   }
-  await supabaseAdmin.auth.signInWithOtp({ email });
+
+  const { error } = await supabaseAdmin.auth.signInWithOtp({
+    email: normalizedEmail
+  });
+
+  if (error) {
+    throw new ApiError(
+      500,
+      'EMAIL_LINK_FAILED',
+      'Unable to send the sign-in link.'
+    );
+  }
 }
 
-/** Verifies the Supabase session established after the freelancer clicks their magic link. */
-async function verifyFreelancerLink(supabaseAccessToken) {
+/** Verifies the Supabase session established after an employee or freelancer clicks their magic link. */
+async function verifyEmailLink(supabaseAccessToken) {
   const { data, error } = await supabaseAdmin.auth.getUser(supabaseAccessToken);
-  if (error || !data?.user) throw new ApiError(401, 'INVALID_LINK', 'That link is invalid or has expired.');
 
-  const email = data.user.email;
-  let { rows } = await db.query('select * from users where email = $1 and auth_provider = $2', [email, 'email_magic_link']);
-  let user = rows[0];
-
-  if (!user) {
-    const { rows: freelancerRows } = await db.query('select id from freelancers where email = $1', [email]);
-    if (!freelancerRows[0]) throw new ApiError(403, 'NOT_A_FREELANCER', 'No freelancer record matches this email.');
-
-    const inserted = await db.query(
-      `insert into users (auth_provider, email, display_name) values ('email_magic_link', $1, $1) returning *`,
-      [email]
+  if (error || !data?.user) {
+    throw new ApiError(
+      401,
+      'INVALID_LINK',
+      'That sign-in link is invalid or has expired.'
     );
-    user = inserted.rows[0];
-    await db.query('update freelancers set user_id = $1 where email = $2', [user.id, email]);
-  } else {
-    await db.query('update users set last_login_at = now() where id = $1', [user.id]);
   }
 
-  return { token: issueSession(user.id), userId: user.id };
+  const email = data.user.email.trim().toLowerCase();
+
+  let { rows } = await db.query(
+    'select * from users where lower(email) = $1 and auth_provider = $2',
+    [email, 'email_magic_link']
+  );
+
+  let user = rows[0];
+
+  const employeeResult = await db.query(
+    'select id from employees where lower(email) = $1',
+    [email]
+  );
+
+  const freelancerResult = await db.query(
+    'select id from freelancers where lower(email) = $1',
+    [email]
+  );
+
+  const employee = employeeResult.rows[0];
+  const freelancer = freelancerResult.rows[0];
+
+  if (!employee && !freelancer) {
+    throw new ApiError(
+      403,
+      'ACCOUNT_NOT_APPROVED',
+      'This email address is not registered for portal access.'
+    );
+  }
+
+  if (!user) {
+    const inserted = await db.query(
+      `insert into users (auth_provider, email, display_name)
+       values ('email_magic_link', $1, $1)
+       returning *`,
+      [email]
+    );
+
+    user = inserted.rows[0];
+  } else {
+    await db.query(
+      'update users set last_login_at = now() where id = $1',
+      [user.id]
+    );
+  }
+
+  if (!user.is_active) {
+    throw new ApiError(
+      403,
+      'ACCOUNT_INACTIVE',
+      'This account has been deactivated.'
+    );
+  }
+
+  if (employee) {
+    await db.query(
+      'update employees set user_id = $1 where id = $2 and user_id is null',
+      [user.id, employee.id]
+    );
+  }
+
+  if (freelancer) {
+    await db.query(
+      'update freelancers set user_id = $1 where id = $2 and user_id is null',
+      [user.id, freelancer.id]
+    );
+  }
+
+  return {
+    token: issueSession(user.id),
+    userId: user.id
+  };
 }
 
 async function getMe(userId) {
@@ -88,4 +170,4 @@ async function getMe(userId) {
   return rows[0];
 }
 
-module.exports = { loginWithEntra, requestFreelancerLink, verifyFreelancerLink, getMe };
+module.exports = { loginWithEntra, requestEmailLink, verifyEmailLink, getMe };
