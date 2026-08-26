@@ -41,8 +41,13 @@ async function requestEmailLink(email) {
   const normalizedEmail = email.trim().toLowerCase();
 
   const employeeResult = await db.query(
-    'select id from employees where lower(email) = $1',
-    [normalizedEmail]
+  `select e.id
+   from employees e
+   join users u on u.id = e.user_id
+   where lower(u.email) = $1
+     and e.active = true`,
+  [normalizedEmail]
+
   );
 
   const freelancerResult = await db.query(
@@ -83,15 +88,21 @@ async function verifyEmailLink(supabaseAccessToken) {
   const email = data.user.email.trim().toLowerCase();
 
   let { rows } = await db.query(
-    'select * from users where lower(email) = $1 and auth_provider = $2',
-    [email, 'email_magic_link']
+  'select * from users where lower(email) = $1',
+  [email]
+
   );
 
   let user = rows[0];
 
   const employeeResult = await db.query(
-    'select id from employees where lower(email) = $1',
-    [email]
+  `select e.id
+   from employees e
+   join users u on u.id = e.user_id
+   where lower(u.email) = $1
+     and e.active = true`,
+  [email]
+
   );
 
   const freelancerResult = await db.query(
