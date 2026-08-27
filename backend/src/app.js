@@ -19,6 +19,7 @@ const notificationsRoutes = require('./routes/notifications.routes');
 const auditLogRoutes = require('./routes/auditLog.routes');
 const reportsRoutes = require('./routes/reports.routes');
 const adminRoutes = require('./routes/admin.routes');
+const companiesRoutes = require('./routes/companies.routes');
 
 const app = express();
 
@@ -48,6 +49,7 @@ v1.use('/notifications', notificationsRoutes);
 v1.use('/audit-log', auditLogRoutes);
 v1.use('/reports', reportsRoutes);
 v1.use('/admin', adminRoutes);
+v1.use('/companies', companiesRoutes);
 
 app.use('/v1', v1);
 
