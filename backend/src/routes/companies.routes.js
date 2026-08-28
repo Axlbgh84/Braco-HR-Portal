@@ -8,9 +8,10 @@ const router = express.Router();
 router.use(requireAuth);
 
 // Basic company directory.
-// Available to any authenticated portal user because the frontend needs
-// company names for profiles, dropdowns, dashboards, and labels.
 router.get('/', controller.list);
+
+// Create a new company.
+router.post('/', controller.create);
 
 // Single-company lookup.
 router.get('/:id', controller.getById);

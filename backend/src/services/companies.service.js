@@ -3,10 +3,6 @@ const { ApiError } = require('../middleware/errorHandler');
 
 /**
  * Returns the basic company directory used throughout the HR Portal.
- *
- * This endpoint deliberately exposes only non-sensitive company information.
- * Any authenticated portal user may need this data for company names,
- * employee profiles, dropdowns, dashboards, and other portal displays.
  */
 async function list() {
   const { rows } = await db.query(
@@ -21,9 +17,6 @@ async function list() {
 
 /**
  * Returns one company by ID.
- *
- * Kept here so the service is ready for company-specific portal views later,
- * without exposing additional company data.
  */
 async function getById(id) {
   const { rows } = await db.query(
@@ -45,7 +38,45 @@ async function getById(id) {
 }
 
 
+/**
+ * Creates a new Braco Group company.
+ */
+async function create({ name }) {
+
+  const cleanName = name.trim();
+
+  /*
+   * Prevent duplicate company names.
+   */
+  const existing = await db.query(
+    `select id
+     from companies
+     where lower(name) = lower($1)
+     limit 1`,
+    [cleanName]
+  );
+
+  if (existing.rows[0]) {
+    throw new ApiError(
+      409,
+      'COMPANY_EXISTS',
+      'A company with this name already exists.'
+    );
+  }
+
+  const { rows } = await db.query(
+    `insert into companies (name)
+     values ($1)
+     returning id, name`,
+    [cleanName]
+  );
+
+  return rows[0];
+}
+
+
 module.exports = {
   list,
-  getById
+  getById,
+  create
 };
