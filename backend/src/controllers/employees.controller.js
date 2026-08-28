@@ -2,11 +2,12 @@ const { z } = require('zod');
 const service = require('../services/employees.service');
 
 const createSchema = z.object({
-  userId: z.string().uuid(),
+  name: z.string().trim().min(1, 'Employee name is required.').max(150),
+  email: z.string().trim().email('A valid email address is required.'),
   companyId: z.string().uuid(),
   departmentId: z.string().uuid().optional(),
   managerId: z.string().uuid().optional(),
-  jobTitle: z.string().min(1),
+  jobTitle: z.string().trim().min(1, 'Job title is required.').max(150),
   contractType: z.enum(['permanent', 'temporary']).optional(),
   contractStartDate: z.string().date().optional(),
   contractEndDate: z.string().date().optional(),

@@ -39,16 +39,133 @@ async function getById(id) {
 }
 
 async function create(req, input) {
-  const { rows } = await db.query(
-    `insert into employees (user_id, company_id, department_id, manager_id, job_title,
-                             contract_type, contract_start_date, contract_end_date, vacation_allotment_days)
-     values ($1,$2,$3,$4,$5,$6,$7,$8, coalesce($9, 15))
-     returning *`,
-    [input.userId, input.companyId, input.departmentId || null, input.managerId || null, input.jobTitle,
-     input.contractType || null, input.contractStartDate || null, input.contractEndDate || null, input.vacationAllotmentDays]
-  );
-  await recordAudit(req, { action: 'employee.created', entityType: 'employee', entityId: rows[0].id });
-  return rows[0];
+  const client = await db.pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const displayName = input.name.trim();
+
+    const existingUserResult = await client.query(
+      `select *
+       from users
+       where lower(email) = $1
+       limit 1`,
+      [normalizedEmail]
+    );
+
+    let user = existingUserResult.rows[0];
+
+    if (!user) {
+      const insertedUser = await client.query(
+        `insert into users (
+           auth_provider,
+           email,
+           display_name,
+           is_active
+         )
+         values (
+           'email_magic_link',
+           $1,
+           $2,
+           true
+         )
+         returning *`,
+        [normalizedEmail, displayName]
+      );
+
+      user = insertedUser.rows[0];
+    } else {
+      const updatedUser = await client.query(
+        `update users
+         set display_name = $2,
+             is_active = true
+         where id = $1
+         returning *`,
+        [user.id, displayName]
+      );
+
+      user = updatedUser.rows[0];
+    }
+
+    const existingEmployeeResult = await client.query(
+      `select id
+       from employees
+       where user_id = $1
+       limit 1`,
+      [user.id]
+    );
+
+    if (existingEmployeeResult.rows[0]) {
+      throw new ApiError(
+        409,
+        'EMPLOYEE_EXISTS',
+        'An employee profile already exists for this email address.'
+      );
+    }
+
+    const employeeResult = await client.query(
+      `insert into employees (
+         user_id,
+         company_id,
+         department_id,
+         manager_id,
+         job_title,
+         contract_type,
+         contract_start_date,
+         contract_end_date,
+         vacation_allotment_days
+       )
+       values (
+         $1,$2,$3,$4,$5,$6,$7,$8,coalesce($9,15)
+       )
+       returning *`,
+      [
+        user.id,
+        input.companyId,
+        input.departmentId || null,
+        input.managerId || null,
+        input.jobTitle,
+        input.contractType || null,
+        input.contractStartDate || null,
+        input.contractEndDate || null,
+        input.vacationAllotmentDays
+      ]
+    );
+
+    const employee = employeeResult.rows[0];
+
+    await client.query(
+      `insert into user_roles (user_id, role_id)
+       select $1, r.id
+       from roles r
+       where r.key = 'employee'
+       on conflict (user_id, role_id)
+       do nothing`,
+      [user.id]
+    );
+
+    await client.query('COMMIT');
+
+    await recordAudit(req, {
+      action: 'employee.created',
+      entityType: 'employee',
+      entityId: employee.id
+    });
+
+    return {
+      ...employee,
+      display_name: user.display_name,
+      email: user.email
+    };
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function setActive(req, id, active) {

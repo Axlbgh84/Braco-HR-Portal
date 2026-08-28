@@ -466,4 +466,4 @@ select r.id, p.id from roles r, permissions p where
                                      'agreements.manage','reports.view','audit.view')) or
   (r.key='finance'     and p.key in ('employees.read.self','loans.approve.finance','freelancers.approve',
                                      'work.pay','reports.view')) or
-  (r.key='admin'       and p.key in ('admin.users','admin.companies','audit.view','reports.view','employees.read.all'));
+(r.key='admin'       and p.key in ('admin.users','admin.companies','audit.view','reports.view','employees.read.all','employees.write'));
